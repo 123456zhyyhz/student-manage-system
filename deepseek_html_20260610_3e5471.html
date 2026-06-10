@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学生信息管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { padding-top: 30px; background: #f0f2f5; }
+        .container { max-width: 1200px; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .table th, .table td { vertical-align: middle; }
+        .sortable { cursor: pointer; user-select: none; }
+        .sortable:hover { background-color: #f1f1f1; }
+        .sort-icon { font-size: 0.8rem; margin-left: 4px; }
+        .empty-state { padding: 60px 0; text-align: center; color: #999; }
+        .empty-state i { font-size: 4rem; display: block; margin-bottom: 15px; }
+        .pagination { margin-top: 20px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card p-4 mb-4">
+        <h1 class="text-center mb-2">🎓 学生信息管理系统</h1>
+        <p class="text-center text-muted" id="studentCount">加载中...</p>
+
+        <!-- 操作栏 -->
+        <div class="row g-3 align-items-end mb-3">
+            <div class="col-md-4">
+                <input class="form-control" id="searchInput" placeholder="输入姓名或学号搜索..." oninput="applyFilters()">
+            </div>
+            <div class="col-md-8 text-end">
+                <button class="btn btn-outline-success btn-sm me-2" onclick="exportCSV()">
+                    <i class="bi bi-download"></i> 导出 CSV
+                </button>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentModal" onclick="clearForm()">
+                    <i class="bi bi-plus-lg"></i> 添加学生
+                </button>
+            </div>
+        </div>
+
+        <!-- 表格 -->
+        <div class="table-responsive">
+            <table class="table table-hover align-middle bg-white">
+                <thead class="table-light">
+                    <tr>
+                        <th class="sortable" onclick="toggleSort('studentId')">学号 <span class="sort-icon" id="sortIcon-studentId"></span></th>
+                        <th class="sortable" onclick="toggleSort('name')">姓名 <span class="sort-icon" id="sortIcon-name"></span></th>
+                        <th>性别</th>
+                        <th class="sortable" onclick="toggleSort('age')">年龄 <span class="sort-icon" id="sortIcon-age"></span></th>
+                        <th class="sortable" onclick="toggleSort('className')">班级 <span class="sort-icon" id="sortIcon-className"></span></th>
+                        <th>手机号</th>
+                        <th>地址</th>
+                        <th width="110">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="studentTableBody"></tbody>
+            </table>
+        </div>
+
+        <!-- 分页 -->
+        <nav id="paginationNav" class="d-flex justify-content-center"></nav>
+    </div>
+</div>
+
+<!-- 编辑/添加模态框 -->
+<div class="modal fade" id="studentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">添加新学生</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">学号 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="studentId" required maxlength="20">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">姓名 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="name" required maxlength="50">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">性别 <span class="text-danger">*</span></label>
+                        <select class="form-select" id="gender" required>
+                            <option value="男">男</option>
+                            <option value="女">女</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">年龄 <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="age" min="1" max="120" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">班级 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="className" required>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">手机号</label>
+                        <input type="tel" class="form-control" id="phone">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">地址</label>
+                        <input type="text" class="form-control" id="address">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveStudent()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    (function() {
+        const STORAGE_KEY = 'students';
+        const PAGE_SIZE = 10; // 每页显示条数
+
+        // ---------- 数据存取 ----------
+        function getStudents() {
+            return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        }
+        function saveStudents(students) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(students));
+        }
+
+        // ---------- 全局状态 ----------
+        let currentSortField = null;      // 当前排序字段
+        let currentSortOrder = 'asc';     // asc / desc
+        let currentPage = 1;
+
+        // ---------- 排序切换 ----------
+        window.toggleSort = function(field) {
+            if (currentSortField === field) {
+                currentSortOrder = currentSortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSortField = field;
+                currentSortOrder = 'asc';
+            }
+            updateSortIcons();
+            applyFilters();
+        };
+
+        function updateSortIcons() {
+            const icons = document.querySelectorAll('.sort-icon');
+            icons.forEach(icon => icon.textContent = '');
+            if (currentSortField) {
+                const icon = document.getElementById(`sortIcon-${currentSortField}`);
+                if (icon) icon.textContent = currentSortOrder === 'asc' ? '▲' : '▼';
+            }
+        }
+
+        // ---------- 搜索过滤 ----------
+        function getFilteredAndSortedStudents() {
+            const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+            let students = getStudents();
+
+            // 过滤
+            if (keyword) {
+                students = students.filter(s =>
+                    s.studentId.toLowerCase().includes(keyword) ||
+                    s.name.toLowerCase().includes(keyword)
+                );
+            }
+
+            // 排序
+            if (currentSortField) {
+                students.sort((a, b) => {
+                    let valA = a[currentSortField];
+                    let valB = b[currentSortField];
+                    if (typeof valA === 'string') valA = valA.toLowerCase();
+                    if (typeof valB === 'string') valB = valB.toLowerCase();
+                    if (valA < valB) return currentSortOrder === 'asc' ? -1 : 1;
+                    if (valA > valB) return currentSortOrder === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+            return students;
+        }
+
+        // ---------- 分页逻辑 ----------
+        function getPageData(sortedStudents) {
+            const totalPages = Math.ceil(sortedStudents.length / PAGE_SIZE) || 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            const start = (currentPage - 1) * PAGE_SIZE;
+            const pageStudents = sortedStudents.slice(start, start + PAGE_SIZE);
+            return { pageStudents, totalPages };
+        }
+
+        function renderPagination(totalPages) {
+            const nav = document.getElementById('paginationNav');
+            if (totalPages <= 1) {
+                nav.innerHTML = '';
+                return;
+            }
+            let html = '<ul class="pagination pagination-sm">';
+            for (let i = 1; i <= totalPages; i++) {
+                html += `<li class="page-item ${i === currentPage ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="goToPage(${i})">${i}</a>
+                </li>`;
+            }
+            html += '</ul>';
+            nav.innerHTML = html;
+        }
+
+        window.goToPage = function(page) {
+            currentPage = page;
+            applyFilters();
+        };
+
+        // ---------- 渲染表格 ----------
+        function applyFilters() {
+            const sorted = getFilteredAndSortedStudents();
+            const { pageStudents, totalPages } = getPageData(sorted);
+            document.getElementById('studentCount').textContent = `共 ${sorted.length} 名学生`;
+            renderPagination(totalPages);
+            renderTable(pageStudents, sorted.length);
+        }
+
+        function renderTable(students, totalFiltered) {
+            const tbody = document.getElementById('studentTableBody');
+            if (students.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8">
+                            <div class="empty-state">
+                                <i class="bi bi-people"></i>
+                                <p>${totalFiltered === 0 ? '暂无学生数据，点击“添加学生”开始' : '没有找到匹配的学生'}</p>
+                            </div>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            tbody.innerHTML = students.map(s => `
+                <tr>
+                    <td>${escapeHtml(s.studentId)}</td>
+                    <td>${escapeHtml(s.name)}</td>
+                    <td>${s.gender}</td>
+                    <td>${s.age}</td>
+                    <td>${escapeHtml(s.className)}</td>
+                    <td>${escapeHtml(s.phone || '')}</td>
+                    <td>${escapeHtml(s.address || '')}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-warning me-1" onclick="editStudent(${s.id})" data-bs-toggle="modal" data-bs-target="#studentModal"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteStudent(${s.id})"><i class="bi bi-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            const map = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'};
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        }
+
+        // ---------- 表单与增删改 ----------
+        window.clearForm = function() {
+            document.getElementById('editId').value = '';
+            document.getElementById('studentId').value = '';
+            document.getElementById('name').value = '';
+            document.getElementById('gender').value = '男';
+            document.getElementById('age').value = '';
+            document.getElementById('className').value = '';
+            document.getElementById('phone').value = '';
+            document.getElementById('address').value = '';
+            document.getElementById('modalTitle').textContent = '添加新学生';
+        };
+
+        window.editStudent = function(id) {
+            const students = getStudents();
+            const s = students.find(s => s.id === id);
+            if (!s) return;
+            document.getElementById('editId').value = s.id;
+            document.getElementById('studentId').value = s.studentId;
+            document.getElementById('name').value = s.name;
+            document.getElementById('gender').value = s.gender;
+            document.getElementById('age').value = s.age;
+            document.getElementById('className').value = s.className;
+            document.getElementById('phone').value = s.phone || '';
+            document.getElementById('address').value = s.address || '';
+            document.getElementById('modalTitle').textContent = '编辑学生信息';
+        };
+
+        window.saveStudent = function() {
+            const id = document.getElementById('editId').value;
+            const studentId = document.getElementById('studentId').value.trim();
+            const name = document.getElementById('name').value.trim();
+            const gender = document.getElementById('gender').value;
+            const age = parseInt(document.getElementById('age').value);
+            const className = document.getElementById('className').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+            const address = document.getElementById('address').value.trim();
+
+            if (!studentId || !name || isNaN(age) || !className) {
+                alert('请填写所有必填字段（学号、姓名、年龄、班级）');
+                return;
+            }
+
+            // 手机号格式提醒（非强制）
+            if (phone && !/^1\d{10}$/.test(phone)) {
+                if (!confirm('手机号格式可能不正确，确定保存吗？')) return;
+            }
+
+            let students = getStudents();
+
+            // 学号唯一性检查
+            const duplicate = students.find(s => s.studentId === studentId && String(s.id) !== id);
+            if (duplicate) {
+                alert(`学号 "${studentId}" 已存在，请重新输入。`);
+                return;
+            }
+
+            if (id) {
+                const index = students.findIndex(s => s.id == id);
+                if (index !== -1) {
+                    students[index] = { id: Number(id), studentId, name, gender, age, className, phone, address };
+                }
+            } else {
+                students.push({ id: Date.now(), studentId, name, gender, age, className, phone, address });
+            }
+
+            saveStudents(students);
+            applyFilters(); // 重新渲染并保持当前页
+            bootstrap.Modal.getInstance(document.getElementById('studentModal')).hide();
+        };
+
+        window.deleteStudent = function(id) {
+            if (!confirm('确定要删除该学生吗？')) return;
+            let students = getStudents().filter(s => s.id !== id);
+            saveStudents(students);
+            applyFilters();
+        };
+
+        // ---------- 导出 CSV（不含内部ID） ----------
+        window.exportCSV = function() {
+            const students = getFilteredAndSortedStudents(); // 导出当前筛选/排序后的结果
+            if (students.length === 0) {
+                alert('没有数据可导出');
+                return;
+            }
+            const header = ['学号', '姓名', '性别', '年龄', '班级', '手机号', '地址'];
+            const rows = students.map(s => [s.studentId, s.name, s.gender, s.age, s.className, s.phone, s.address]);
+            const csvContent = [header, ...rows]
+                .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+                .join('\n');
+            const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `学生信息_${new Date().toISOString().slice(0, 10)}.csv`;
+            link.click();
+        };
+
+        // ---------- 初始化 ----------
+        document.addEventListener('DOMContentLoaded', () => {
+            applyFilters();
+        });
+    })();
+</script>
+</body>
+</html>
